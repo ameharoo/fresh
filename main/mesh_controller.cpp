@@ -621,7 +621,7 @@ void MeshController::on_packet(uint interface_id, MeshPhyAddrPtr phy_addr, MeshP
     far_addr_t dst;
 
     // log basic packet info
-    packet_log.write_raw("[{}]: new packet from ", self_addr);
+    packet_log.write_raw("[{}]: new packet from ", self_addr._internal);
     if (interface_descr.address_size) {
         auto addr_bytes = (ubyte*) alloca(interface_descr.address_size);
         interface_descr.interface->write_addr_bytes(phy_addr, addr_bytes);
@@ -721,7 +721,7 @@ void MeshController::on_packet(uint interface_id, MeshPhyAddrPtr phy_addr, MeshP
 
     // check optimized far data packets
     if (packet_type == MeshPacketType::FAR_OPTIMIZED_DATA_FIRST) {
-        packet_log.write("FAR_OPTIMIZED_DATA_FIRST (from {})", tx_addr);
+        packet_log.write("FAR_OPTIMIZED_DATA_FIRST (from {})", tx_addr._internal);
         write_log(self_addr, LogFeatures::TRACE_PACKET, "packet type is FAR_OPTIMIZED_DATA_FIRST");
 
         if (!MESH_FIELD_ACCESSIBLE(opt_data.first, size)) {
@@ -736,7 +736,7 @@ void MeshController::on_packet(uint interface_id, MeshPhyAddrPtr phy_addr, MeshP
     }
 
     if (packet_type == MeshPacketType::FAR_OPTIMIZED_DATA_PART) {
-        packet_log.write("FAR_OPTIMIZED_DATA_PART (from {})", tx_addr);
+        packet_log.write("FAR_OPTIMIZED_DATA_PART (from {})", tx_addr._internal);
         write_log(self_addr, LogFeatures::TRACE_PACKET, "packet type is FAR_OPTIMIZED_DATA_PART");
 
         if (!MESH_FIELD_ACCESSIBLE(opt_data.part_8, size)) {
@@ -759,7 +759,7 @@ void MeshController::on_packet(uint interface_id, MeshPhyAddrPtr phy_addr, MeshP
     src = packet->far.src_addr;
     dst = packet->far.dst_addr;
 
-    packet_log.write("{} -> {}", src, dst);
+    packet_log.write("{} -> {}", src._internal, dst._internal);
     if (dst == BROADCAST_FAR_ADDR)
         packet_log.write("BROADCAST");
 
