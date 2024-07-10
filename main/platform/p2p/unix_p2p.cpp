@@ -6,7 +6,7 @@ UnixSerial::UnixSerial(const char* name, uint baud) {
     fd = open(name, O_RDWR | O_NOCTTY | O_NONBLOCK);
 
     if (fd < 0) {
-        printf("Error: opening port: %s", name);
+        printf("Opening port (%s) failed: %d\n", name, fd);
         return;
     }
 
