@@ -3,7 +3,7 @@
 #include "types.h"
 #include "mesh_protocol.h"
 
-#ifndef ESP_PLATFORM
+#if !(defined(ESP_PLATFORM) || defined(DISABLED_TRACING))
 #include <format>
 #endif
 
@@ -63,7 +63,7 @@ constexpr bool is_log_feature_present(LogFeatures::Enum components) {
 }
 
 
-#ifndef ESP_PLATFORM
+#if !(defined(ESP_PLATFORM) || defined(DISABLED_TRACING))
 namespace std {
     template <>
     struct formatter<MeshProto::far_addr_t> {
@@ -100,7 +100,7 @@ public:
     }
 
     // damn ESP-IDF v5.1.2 (latest at the moment of writing this), using GCC 12.2, which does not support std::format
-#ifndef ESP_PLATFORM
+#if !(defined(ESP_PLATFORM) || defined(DISABLED_TRACING))
     template <typename... TArgs>
     void write(std::format_string<TArgs...> fmt, TArgs&&... args) {
         write_raw(", ");

@@ -51,6 +51,10 @@ else()
     set_target_properties(fresh_runner PROPERTIES CXX_STANDARD 23)
     target_link_libraries(fresh_runner PRIVATE ${FRESH_PROJECT_NAME})
 
+    if (DEFINED FRESH_DISABLE_TRACING)
+        target_compile_definitions(${FRESH_PROJECT_NAME} PUBLIC DISABLED_TRACING)
+    endif ()
+
     # link libsodium
     find_package(PkgConfig REQUIRED)
     pkg_search_module(sodium REQUIRED libsodium)
