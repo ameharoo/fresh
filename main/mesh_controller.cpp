@@ -921,6 +921,7 @@ void MeshController::on_packet(uint interface_id, MeshPhyAddrPtr phy_addr, MeshP
 [[noreturn]] void MeshController::task_check_packets(void* userdata) {
     auto self = (MeshController*) userdata;
     while (true) {
+        std::lock_guard<std::mutex> lock(self->interfacesMutex);
         for (auto& interface : self->interfaces) {
             interface.interface->check_packets();
             interface.sessions->check_caches(Os::get_microseconds());
@@ -932,6 +933,8 @@ void MeshController::on_packet(uint interface_id, MeshPhyAddrPtr phy_addr, MeshP
 }
 
 void MeshController::add_interface(MeshInterface* interface) {
+    std::lock_guard<std::mutex> lock(interfacesMutex);
+
     interface->id = interfaces.size();
     interface->controller = this;
     auto props = interface->get_props();

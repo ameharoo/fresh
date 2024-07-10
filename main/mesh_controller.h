@@ -8,7 +8,7 @@
 #include <list>
 #include <vector>
 #include <functional>
-
+#include <mutex>
 
 class PacketLog;
 
@@ -239,6 +239,7 @@ class MeshController
 public:
     std::array<ubyte, 16> network_name{};
     std::array<ubyte, 16> pre_shared_key{};
+    std::mutex interfacesMutex;
     std::vector<NsMeshController::InterfaceInternalParams> interfaces;
     NsMeshController::Router router{*this};
     MeshProto::far_addr_t self_addr;
