@@ -239,7 +239,9 @@ class MeshController
 public:
     std::array<ubyte, 16> network_name{};
     std::array<ubyte, 16> pre_shared_key{};
+#ifndef ESP_PLATFORM
     std::mutex interfacesMutex;
+#endif
     std::vector<NsMeshController::InterfaceInternalParams> interfaces;
     NsMeshController::Router router{*this};
     MeshProto::far_addr_t self_addr;
