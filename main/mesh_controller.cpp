@@ -921,12 +921,12 @@ void MeshController::on_packet(uint interface_id, MeshPhyAddrPtr phy_addr, MeshP
 [[noreturn]] void MeshController::task_check_packets(void* userdata) {
     auto self = (MeshController*) userdata;
     while (true) {
-#ifndef ESP_PLATFORM
-        std::lock_guard<std::mutex> lock(self->interfacesMutex);
-#endif
-        for (auto& interface : self->interfaces) {
-            interface.interface->check_packets();
-            interface.sessions->check_caches(Os::get_microseconds());
+        {
+            std::lock_guard<std::mutex> lock(self->interfacesMutex);
+            for (auto& interface : self->interfaces) {
+                interface.interface->check_packets();
+                interface.sessions->check_caches(Os::get_microseconds());
+            }
         }
         self->check_data_streams();
         self->router.check_packet_cache();
@@ -935,14 +935,15 @@ void MeshController::on_packet(uint interface_id, MeshPhyAddrPtr phy_addr, MeshP
 }
 
 void MeshController::add_interface(MeshInterface* interface) {
-#ifndef ESP_PLATFORM
-    std::lock_guard<std::mutex> lock(interfacesMutex);
-#endif
+    {
+        std::lock_guard<std::mutex> lock(interfacesMutex);
 
-    interface->id = interfaces.size();
-    interface->controller = this;
-    auto props = interface->get_props();
-    interfaces.push_back({interface, props.sessions, props.far_mtu, props.address_size, props.need_secure});
+        interface->id = interfaces.size();
+        interface->controller = this;
+        auto props = interface->get_props();
+        interfaces.push_back({interface, props.sessions, props.far_mtu, props.address_size, props.need_secure});
+    }
+
     write_log(self_addr, LogFeatures::TRACE_PACKET_IO, "sending broadcast hello world");
     interface->send_hello(nullptr);
 }
