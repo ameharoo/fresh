@@ -4,6 +4,7 @@
 
 #include <bit>
 #include <cstring>
+#include <type_traits>
 
 // waiting for C++23 "deducing this" feature to get implemented...
 // no CRTP, sorry
