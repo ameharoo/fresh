@@ -3,7 +3,11 @@
 #include "types.h"
 #include "mesh_protocol.h"
 
-#ifndef ESP_PLATFORM
+#ifdef ESP_PLATFORM
+#define FRESH_DISABLE_PACKET_TRACING
+#endif
+
+#ifndef FRESH_DISABLE_PACKET_TRACING
 #include <format>
 #endif
 
@@ -81,7 +85,11 @@ namespace std {
 
 class PacketLog {
 public:
-    constexpr static int BUF_SIZE = 320;
+    #ifdef FRESH_DISABLE_PACKET_TRACING
+    constexpr static int BUF_SIZE = 0;
+    #else
+    constexpr static int BUF_SIZE = 512;
+    #endif
 
     std::array<char, BUF_SIZE> buffer;
     int written = 0;

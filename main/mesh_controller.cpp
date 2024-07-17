@@ -11,15 +11,6 @@ using namespace NsMeshController;
 // todo move this function somewhere outside
 // todo do not create tasks for every packet, make another api
 // todo send NEAR_HELLO frames through some interfaces (such as wifi) to discover new clients in case of their packet loss
-static inline void print_bytes(const ubyte* buf, uint size) {
-    for (int i = 0; i < size; ++i) {
-        printf("%02x", buf[i]);
-        if (i != size - 1)
-            printf(":");
-    }
-    printf("\n");
-}
-
 // todo add sniffing api
 
 
@@ -157,7 +148,8 @@ void MeshController::handle_near_secure(uint interface_id, MeshPhyAddrPtr phy_ad
         write_log(self_addr, LogFeatures::TRACE_PACKET_IO, "packet io: sending secure NEAR_HELLO_INIT");
         interface->send_packet(phy_addr, init_packet, packet_size);
         interface->free_near_packet(init_packet);
-        printf("time after hello handler: %llu\n", Os::get_microseconds());
+        write_log(self_addr, LogFeatures::TRACE_MESH_EST_SESSION,
+                  "time after hello handler: %llu", Os::get_microseconds());
     }
 
     else if (packet_type == MeshPacketType::NEAR_HELLO_INIT) {
@@ -204,7 +196,8 @@ void MeshController::handle_near_secure(uint interface_id, MeshPhyAddrPtr phy_ad
         write_log(self_addr, LogFeatures::TRACE_PACKET_IO, "packet io: sending secure HEAR_HELLO_AUTHORIZE");
         interface->send_packet(phy_addr, auth_packet, packet_size);
         interface->free_near_packet(auth_packet);
-        printf("time after init handler: %llu\n", Os::get_microseconds());
+        write_log(self_addr, LogFeatures::TRACE_MESH_EST_SESSION,
+                  "time after init handler: %llu", Os::get_microseconds());
     }
 
     else if (packet_type == MeshPacketType::HEAR_HELLO_AUTHORIZE) {
@@ -269,8 +262,10 @@ void MeshController::handle_near_secure(uint interface_id, MeshPhyAddrPtr phy_ad
 
         // registering peer and removing session establishment info
         interface_descr.sessions->remove_est_session(phy_addr);
-        printf("time after auth handler: %llu\n", Os::get_microseconds());
-        printf("peer session done: from auth (other addr: %u)\n", (uint) session->secure.peer_far_addr);
+        write_log(self_addr, LogFeatures::TRACE_MESH_EST_SESSION,
+                  "time after auth handler: %llu", Os::get_microseconds());
+        write_log(self_addr, LogFeatures::TRACE_MESH_EST_SESSION,
+                  "peer session done: from auth (other addr: %u)", (uint) session->secure.peer_far_addr);
 
         interface_descr.sessions->register_far_addr(session->secure.peer_far_addr, phy_addr);
         router.add_peer(session->secure.peer_far_addr, interface);
@@ -318,8 +313,10 @@ void MeshController::handle_near_secure(uint interface_id, MeshPhyAddrPtr phy_ad
         session->secure.prev_peer_timestamp = packet->near_hello_joined_secure.initial_timestamp;
 
         interface_descr.sessions->remove_est_session(phy_addr);
-        printf("time after joined handler: %llu\n", Os::get_microseconds());
-        printf("peer session done: from joined (other addr: %u)\n", (uint) session->secure.peer_far_addr);
+        write_log(self_addr, LogFeatures::TRACE_MESH_EST_SESSION,
+                  "time after joined handler: %llu", Os::get_microseconds());
+        write_log(self_addr, LogFeatures::TRACE_MESH_EST_SESSION,
+                  "peer session done: from joined (other addr: %u)", (uint) session->secure.peer_far_addr);
 
         interface_descr.sessions->register_far_addr(session->secure.peer_far_addr, phy_addr);
         router.add_peer(session->secure.peer_far_addr, interface);
@@ -365,7 +362,8 @@ void MeshController::handle_near_insecure(uint interface_id, MeshPhyAddrPtr phy_
         interface->free_near_packet(joined_packet);
 
         router.add_peer(session->insecure.peer_far_addr, interface);
-        printf("got insecure near hello (opponent addr: %u)\n", (uint) session->insecure.peer_far_addr);
+        write_log(self_addr, LogFeatures::TRACE_MESH_EST_SESSION,
+                  "got insecure near hello (opponent addr: %u)", (uint) session->insecure.peer_far_addr);
         fflush(stdout);
     }
 
@@ -383,7 +381,8 @@ void MeshController::handle_near_insecure(uint interface_id, MeshPhyAddrPtr phy_
 
         packet_log.write("authorized peer");
 
-        printf("got insecure near joined (opponent addr: %u)\n", (uint) session->insecure.peer_far_addr);
+        write_log(self_addr, LogFeatures::TRACE_MESH_EST_SESSION,
+                  "got insecure near joined (opponent addr: %u)", (uint) session->insecure.peer_far_addr);
         fflush(stdout);
     }
 }
