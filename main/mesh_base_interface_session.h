@@ -4,6 +4,7 @@
 #include "fresh_config.h"
 
 #include <unordered_map>
+#include <mutex>
 
 
 enum class PeerSecureSessionEstablishmentStage
@@ -73,7 +74,7 @@ public:
 
     virtual MeshPhyAddrPtr get_phy_addr(MeshProto::far_addr_t far_addr) = 0;
 
-    virtual void check_caches(u64 time) {}
+    virtual void check_caches(u64 time) {} // todo remove
 };
 
 
@@ -85,48 +86,59 @@ public:
     std::unordered_map<TPhyAddr, PeerSessionInfo> sessions;
     std::unordered_map<MeshProto::far_addr_t, TPhyAddr> far_to_phy_map;
 
+    std::mutex _mutex;
+
     PeerSessionInfo* get_or_create_session(MeshPhyAddrPtr phy_addr) override {
+        std::lock_guard guard{_mutex};
         return &sessions[*(TPhyAddr*)phy_addr];
     }
 
     PeerSessionInfo* get_or_none_session(MeshPhyAddrPtr phy_addr) override {
+        std::lock_guard guard{_mutex};
         auto iter = sessions.find(*(TPhyAddr*)phy_addr);
         return iter == sessions.end() ? nullptr : &iter->second;
     };
 
     void remove_session(MeshPhyAddrPtr phy_addr) override {
+        std::lock_guard guard{_mutex};
         sessions.erase(*(TPhyAddr*)phy_addr);
     }
 
     PeerSecureSessionEstablishmentInfo* get_or_create_est_session(MeshPhyAddrPtr phy_addr) override {
+        std::lock_guard guard{_mutex};
         return &est_sessions[*(TPhyAddr*)phy_addr];
     }
 
     PeerSecureSessionEstablishmentInfo* get_or_none_est_session(MeshPhyAddrPtr phy_addr) override {
+        std::lock_guard guard{_mutex};
         auto iter = est_sessions.find(*(TPhyAddr*)phy_addr);
         return iter == est_sessions.end() ? nullptr : &iter->second;
     }
 
     void remove_est_session(MeshPhyAddrPtr phy_addr) override {
+        std::lock_guard guard{_mutex};
         est_sessions.erase(*(TPhyAddr*)phy_addr);
     }
 
     void register_far_addr(MeshProto::far_addr_t far_addr, MeshPhyAddrPtr phy_addr) override {
+        std::lock_guard guard{_mutex};
         far_to_phy_map[far_addr] = *(TPhyAddr*)phy_addr;
     }
 
     void unregister_far_addr(MeshProto::far_addr_t far_addr) override {
+        std::lock_guard guard{_mutex};
         far_to_phy_map.erase(far_addr);
     }
 
     MeshPhyAddrPtr get_phy_addr(MeshProto::far_addr_t far_addr) override {
+        std::lock_guard guard{_mutex};
         auto iter = far_to_phy_map.find(far_addr);
         return iter == far_to_phy_map.end() ? nullptr : (MeshPhyAddrPtr) &iter->second;
     }
 
     void check_caches(u64 time) override {
         for (auto it = est_sessions.begin(); it != est_sessions.end();) {
-            auto&est_session = it->second;
+            auto& est_session = it->second;
 
             if (est_session.is_expired(time))
                 it = est_sessions.erase(it);

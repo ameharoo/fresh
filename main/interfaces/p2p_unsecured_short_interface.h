@@ -70,6 +70,8 @@ public:
     ubyte curr_read_amount = 0;
     bool ack_received = true; // like binary semaphore, but have no callback on someone waiting
 
+    std::mutex _mutex;
+
     NsP2PUnsecuredShortInterface::PacketCache cache;
 
     // negative size to set unlimited buffers
@@ -80,14 +82,14 @@ public:
 
     bool accept_near_packet(MeshPhyAddrPtr phy_addr, const MeshProto::MeshPacket* packet, uint size) override;
 
-    MeshProto::MeshPacket* alloc_near_packet(MeshProto::MeshPacketType type, uint size) override;
+    MeshProto::MeshPacket* alloc_near_packet(MeshProto::MeshPacketType type, uint size) const override;
 
     MeshProto::MeshPacket* realloc_near_packet(MeshProto::MeshPacket* packet,
                                                MeshProto::MeshPacketType old_type,
                                                MeshProto::MeshPacketType new_type,
-                                               uint new_size) override;
+                                               uint new_size) const override;
 
-    void free_near_packet(MeshProto::MeshPacket* packet) override;
+    void free_near_packet(MeshProto::MeshPacket* packet) const override;
 
     void send_packet(MeshPhyAddrPtr phy_addr, const MeshProto::MeshPacket* packet, uint size) override;
 
@@ -95,7 +97,7 @@ public:
 
     void send_hello(MeshPhyAddrPtr phy_addr) override;
 
-    void write_addr_bytes(MeshPhyAddrPtr phy_addr, void* out_buf) override;
+    void write_addr_bytes(MeshPhyAddrPtr phy_addr, void* out_buf) const override;
 
     // internal function for immediately sending data over UART
     void send_packet_data(const void* data, ubyte size);

@@ -12,6 +12,7 @@ void MeshStreamBuilder::write(const void* data_, uint size) {
     auto data = (const ubyte*) data_;
     uint sent;
 
+    std::shared_lock processing_guard{controller._mutex_processing};
     if (!cache_fill) {
         sent = controller.router.write_data_stream_bytes(dst_addr, sent_size, data, size,
                                                          sent_size + size >= stream_size,
@@ -53,6 +54,7 @@ void MeshStreamBuilder::write(const void* data_, uint size) {
 
 MeshStreamBuilder::~MeshStreamBuilder() {
     if (cache_fill) {
+        std::shared_lock processing_guard{controller._mutex_processing};
         controller.router.write_data_stream_bytes(dst_addr, sent_size, cache, cache_fill, true, stream_id,
                                                   stream_size, CONTROLLER_DEFAULT_PACKET_TTL, controller.self_addr);
     }

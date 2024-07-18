@@ -140,7 +140,7 @@ bool WifiEspNowMeshInterface::accept_near_packet(MeshPhyAddrPtr phy_addr, const 
     return true;
 }
 
-MeshPacket* WifiEspNowMeshInterface::alloc_near_packet(MeshPacketType type, uint size) {
+MeshPacket* WifiEspNowMeshInterface::alloc_near_packet(MeshPacketType type, uint size) const {
     if (type == MeshPacketType::NEAR_HELLO_INIT)
         size += sizeof(MacAddr);
     auto mem = (MeshPacket*) malloc(size);
@@ -149,14 +149,14 @@ MeshPacket* WifiEspNowMeshInterface::alloc_near_packet(MeshPacketType type, uint
 }
 
 MeshPacket* WifiEspNowMeshInterface::realloc_near_packet(MeshPacket* packet, MeshPacketType old_type,
-                                                         MeshPacketType new_type, uint new_size) {
+                                                         MeshPacketType new_type, uint new_size) const {
     if (new_type == MeshPacketType::NEAR_HELLO_INIT) {
         new_size += sizeof(MacAddr);
     }
     return (MeshPacket*) realloc(packet, new_size);
 }
 
-void WifiEspNowMeshInterface::free_near_packet(MeshPacket* packet) {
+void WifiEspNowMeshInterface::free_near_packet(MeshPacket* packet) const {
     free(packet);
 }
 
@@ -202,6 +202,6 @@ void WifiEspNowMeshInterface::send_hello(MeshPhyAddrPtr phy_addr) {
     send_packet(phy_addr, packet, MESH_CALC_SIZE(near_hello_secure));
 }
 
-void WifiEspNowMeshInterface::write_addr_bytes(MeshPhyAddrPtr phy_addr, void* out_buf) {
+void WifiEspNowMeshInterface::write_addr_bytes(MeshPhyAddrPtr phy_addr, void* out_buf) const {
     memcpy(out_buf, phy_addr, sizeof(MacAddr));
 }

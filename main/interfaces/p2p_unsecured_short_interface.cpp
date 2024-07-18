@@ -15,6 +15,8 @@ P2PUnsecuredShortInterface::P2PUnsecuredShortInterface(bool is_self_rx_buf_infin
   write_stream(write_stream_) { }
 
 void P2PUnsecuredShortInterface::check_packets() {
+    std::lock_guard guard{_mutex};
+
     // if waiting for new packet
     if (!remain_read) {
         ubyte tmp_char;
@@ -55,26 +57,29 @@ bool P2PUnsecuredShortInterface::accept_near_packet(MeshPhyAddrPtr phy_addr, con
     return true;
 }
 
-MeshPacket* P2PUnsecuredShortInterface::alloc_near_packet(MeshPacketType type, uint size) {
+MeshPacket* P2PUnsecuredShortInterface::alloc_near_packet(MeshPacketType type, uint size) const {
     auto packet = (MeshPacket*) malloc(size);
     packet->type = type;
     return packet;
 }
 
 MeshPacket* P2PUnsecuredShortInterface::realloc_near_packet(MeshPacket* packet, MeshPacketType old_type,
-                                                            MeshPacketType new_type, uint new_size) {
+                                                            MeshPacketType new_type, uint new_size) const {
     auto new_packet = (MeshPacket*) realloc(packet, new_size);
     new_packet->type = new_type;
     return new_packet;
 }
 
-void P2PUnsecuredShortInterface::free_near_packet(MeshPacket* packet) {
+void P2PUnsecuredShortInterface::free_near_packet(MeshPacket* packet) const {
     free(packet);
 }
 
 void P2PUnsecuredShortInterface::send_packet(MeshPhyAddrPtr phy_addr, const MeshPacket* packet, uint size) {
     if (!size)
         return;
+
+    std::lock_guard guard{_mutex};
+
     if (is_opponent_rx_buf_infinite || ack_received) {
         send_packet_data(packet, size);
         ack_received = false;
@@ -96,7 +101,7 @@ void P2PUnsecuredShortInterface::send_hello(MeshPhyAddrPtr phy_addr) {
     send_packet(phy_addr, packet, MESH_CALC_SIZE(near_hello_insecure));
 }
 
-void P2PUnsecuredShortInterface::write_addr_bytes(MeshPhyAddrPtr phy_addr, void* out_buf) {
+void P2PUnsecuredShortInterface::write_addr_bytes(MeshPhyAddrPtr phy_addr, void* out_buf) const {
     // nothing
 }
 

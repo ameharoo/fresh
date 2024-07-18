@@ -3,6 +3,7 @@
 
 #include <new>
 #include <string_view>
+#include <cassert>
 
 
 using namespace MeshProto;
@@ -53,7 +54,7 @@ struct CompletedStreamInfo
     uint size;
     far_addr_t src_addr;
     far_addr_t dst_addr;
-    MeshController* controller;
+    const MeshController* controller;
     Os::TaskHandle curr_task;
 };
 
@@ -71,14 +72,9 @@ static void task_handle_packet(void* userdata) {
 }
 
 
-void MeshController::compete_data_stream(ubyte* data, uint size, far_addr_t src_addr, far_addr_t dst_addr) {
+void MeshController::complete_data_stream(ubyte* data, uint size, far_addr_t src_addr, far_addr_t dst_addr) const {
     auto compl_info = (CompletedStreamInfo*) malloc(sizeof(CompletedStreamInfo));
-    new (compl_info) CompletedStreamInfo();
-    compl_info->controller = this;
-    compl_info->data = data;
-    compl_info->size = size;
-    compl_info->src_addr = src_addr;
-    compl_info->dst_addr = dst_addr;
+    new (compl_info) CompletedStreamInfo(data, size, src_addr, dst_addr, this, {});
     Os::create_task(task_handle_packet, HANDLE_DATA_PACKET_NAME, HANDLE_PACKET_TASK_STACK_SIZE,
                     compl_info, HANDLE_PACKET_TASK_PRIORITY, &compl_info->curr_task, HANDLE_PACKET_TASK_AFFINITY);
 }
@@ -90,7 +86,7 @@ bool MeshController::check_stream_completeness(const DataStreamIdentity& identit
 
     auto stream_data = stream.stream_data;
     stream.stream_data = nullptr;
-    compete_data_stream(stream_data, stream.stream_size, identity.src_addr, identity.dst_addr);
+    complete_data_stream(stream_data, stream.stream_size, identity.src_addr, identity.dst_addr);
 
     // broadcasts are never deleted immediately. at this point, .is_completed() will return if stream handler
     // should be called, but stream itself will only expire (deleted in Router::check_packet_cache())
@@ -321,6 +317,10 @@ void MeshController::handle_near_secure(uint interface_id, MeshPhyAddrPtr phy_ad
         interface_descr.sessions->register_far_addr(session->secure.peer_far_addr, phy_addr);
         router.add_peer(session->secure.peer_far_addr, interface);
     }
+
+    else {
+        packet_log.write("DISCARD (unknown type: {})", (int) packet_type);
+    }
 }
 
 void MeshController::handle_near_insecure(uint interface_id, MeshPhyAddrPtr phy_addr, MeshPacket* packet, uint size,
@@ -385,6 +385,10 @@ void MeshController::handle_near_insecure(uint interface_id, MeshPhyAddrPtr phy_
                   "got insecure near joined (opponent addr: %u)", (uint) session->insecure.peer_far_addr);
         fflush(stdout);
     }
+
+    else {
+        packet_log.write("DISCARD (unknown type: {})", (int) packet_type);
+    }
 }
 
 void Router::add_rx_data_packet_to_cache(DataStreamIdentity identity, uint offset,
@@ -423,7 +427,7 @@ bool MeshController::handle_data_first_packet(PacketFarDataFirst* packet, uint p
         auto stream_content = (ubyte*) malloc(stream_size);
         memcpy(stream_content, packet->payload, stream_size);
         packet_log.write("COMPLETE (fast path: single packet, unicast)");
-        compete_data_stream(stream_content, stream_size, src, dst);
+        complete_data_stream(stream_content, stream_size, src, dst);
         return true;
     }
 
@@ -435,6 +439,8 @@ bool MeshController::handle_data_first_packet(PacketFarDataFirst* packet, uint p
         identity.src_addr = src;
         identity.dst_addr = dst;
         identity.stream_id = packet->stream_id;
+
+        std::lock_guard guard{_mutex_data_streams};
         auto& stream = data_streams.try_emplace(identity, stream_size, Os::get_microseconds()).first->second;
 
         auto result = stream.add_data(0, packet->payload, payload_size);
@@ -463,6 +469,7 @@ bool MeshController::handle_data_part_packet(PacketFarDataPart8* packet, uint pa
     }
 
     // find existing stream to add packet to, or cache the packet until it expires or stream appears
+    std::lock_guard guard{_mutex_data_streams};
     auto stream_iter = data_streams.find(identity);
     if (stream_iter == data_streams.end()) {
         packet_log.write("RX_CACHE (saving packet: no stream created for this ID)");
@@ -485,12 +492,15 @@ void MeshController::retransmit_packet_first_broadcast(MeshPacket* packet, uint 
     // temporary malloced memory that is large enough to fit packet + security payload in it (if it is required)
     MeshPacket* oversize_storage = nullptr;
 
+    std::lock_guard guard{router._mutex_router};
+
     for (auto [peer_addr, peer] : router.peers) {
         auto send_size = packet_size;
         auto interface = peer.interface;
-        auto mtu = interfaces[interface->id].mtu;
+        auto& interface_descr = interfaces[interface->id];
+        auto mtu = interface_descr.mtu;
 
-        if (interfaces[interface->id].is_secured)
+        if (interface_descr.is_secured)
             mtu -= MESH_SECURE_PACKET_OVERHEAD;
 
         // when oversize_storage becomes available, it is always used to better utilize cpu caches
@@ -507,18 +517,29 @@ void MeshController::retransmit_packet_first_broadcast(MeshPacket* packet, uint 
         }
 
         else {
-            auto phy_addr = interfaces[interface->id].sessions->get_phy_addr(peer_addr);
+            auto phy_addr = interface_descr.sessions->get_phy_addr(peer_addr);
 
-            if (interfaces[interface->id].is_secured) {
+            if (interface_descr.address_size && !phy_addr) [[unlikely]] {
+                packet_log.write("CANCEL FORWARD (physical address did not exist)");
+                continue;
+            }
+
+            if (interface_descr.is_secured) {
                 // creating oversize_storage if required and not created earlier
                 if (send_size + MESH_SECURE_PACKET_OVERHEAD > allocated_packet_size && !oversize_storage) {
                     oversize_storage = (MeshPacket*) malloc(send_size + MESH_SECURE_PACKET_OVERHEAD);
-                    memcpy(curr_packet_ptr, packet, send_size);
+                    memcpy(oversize_storage, packet, send_size);
                     curr_packet_ptr = oversize_storage;
                 }
 
                 // signing packet
-                auto session = interfaces[interface->id].sessions->get_or_none_session(phy_addr);
+                auto session = interface_descr.sessions->get_or_none_session(phy_addr);
+
+                if (!session) [[unlikely]] {
+                    packet_log.write("CANCEL FORWARD (secure session did not associated)");
+                    continue;
+                }
+
                 generate_packet_signature(session, curr_packet_ptr, send_size);
                 send_size += MESH_SECURE_PACKET_OVERHEAD;
             }
@@ -538,15 +559,18 @@ void MeshController::retransmit_packet_first_broadcast(MeshPacket* packet, uint 
 
 void MeshController::retransmit_packet_part_broadcast(MeshPacket* packet, uint packet_size, uint allocated_packet_size,
                                                       far_addr_t src_addr, uint payload_size, PacketLog& packet_log) {
+    std::lock_guard guard{router._mutex_router};
+
     // temporary malloced memory that is large enough to fit packet + security payload in it (if it is required)
     MeshPacket* oversize_storage = nullptr;
 
     for (auto [peer_addr, peer] : router.peers) {
         auto send_size = packet_size;
         auto interface = peer.interface;
-        auto mtu = interfaces[interface->id].mtu;
+        auto& interface_descr = interfaces[interface->id];
+        auto mtu = interface_descr.mtu;
 
-        if (interfaces[interface->id].is_secured)
+        if (interface_descr.is_secured)
             mtu -= MESH_SECURE_PACKET_OVERHEAD;
 
         // when oversize_storage becomes available, it is always used to better utilize cpu caches
@@ -563,18 +587,29 @@ void MeshController::retransmit_packet_part_broadcast(MeshPacket* packet, uint p
         }
 
         else {
-            auto phy_addr = interfaces[interface->id].sessions->get_phy_addr(peer_addr);
+            auto phy_addr = interface_descr.sessions->get_phy_addr(peer_addr);
 
-            if (interfaces[interface->id].is_secured) {
+            if (interface_descr.address_size && !phy_addr) [[unlikely]] {
+                packet_log.write("CANCEL FORWARD (physical address did not exist)");
+                continue;
+            }
+
+            if (interface_descr.is_secured) {
                 // creating oversize_storage if required and not created earlier
                 if (send_size + MESH_SECURE_PACKET_OVERHEAD > allocated_packet_size && !oversize_storage) {
                     oversize_storage = (MeshPacket*) malloc(send_size + MESH_SECURE_PACKET_OVERHEAD);
-                    memcpy(curr_packet_ptr, packet, send_size);
+                    memcpy(oversize_storage, packet, send_size);
                     curr_packet_ptr = oversize_storage;
                 }
 
                 // signing packet
                 auto session = interfaces[interface->id].sessions->get_or_none_session(phy_addr);
+
+                if (!session) [[unlikely]] {
+                    packet_log.write("CANCEL FORWARD (secure session not associated)");
+                    continue;
+                }
+
                 generate_packet_signature(session, curr_packet_ptr, send_size);
                 send_size += MESH_SECURE_PACKET_OVERHEAD;
             }
@@ -607,9 +642,15 @@ void MeshController::run_thread_poll_task() {
 }
 
 void MeshController::on_packet(uint interface_id, MeshPhyAddrPtr phy_addr, MeshPacket* packet, uint size) {
+    std::shared_lock processing_guard{_mutex_processing};
+
+    do_household();
+
     auto& interface_descr = interfaces[interface_id];
     auto interface = interface_descr.interface;
     PacketLog packet_log;
+
+    // interface packets must be processed sequentially and not-concurrently
 
     // pre-declare local vars to allow gotos... todo split this function to a few and change gotos to returns
     far_addr_t tx_addr;
@@ -661,7 +702,8 @@ void MeshController::on_packet(uint interface_id, MeshPhyAddrPtr phy_addr, MeshP
     if (interface_descr.is_secured) {
         write_log(self_addr, LogFeatures::TRACE_PACKET, "packet is from secure interface");
 
-        session = interface_descr.sessions->get_or_none_session(phy_addr);
+        // working with session or session manager does not need locks because they are bound to interface
+        session = interface_descr.sessions->get_or_none_session(phy_addr); // can it invalidate?
         if (!session) {
             packet_log.write("DISCARD (no session associated with sender)");
             write_log(self_addr, LogFeatures::TRACE_PACKET, "packet discarded because no session found");
@@ -674,11 +716,11 @@ void MeshController::on_packet(uint interface_id, MeshPhyAddrPtr phy_addr, MeshP
             write_log(self_addr, LogFeatures::TRACE_PACKET, "packet discarded because no security payload found");
             goto end;
         }
-        auto sign = (MessageSign*) ((ubyte*) packet + sign_offset);
+        auto signature = (MessageSign*) ((ubyte*) packet + sign_offset);
 
-        timestamp_t timestamp = sign->timestamp;
+        timestamp_t timestamp = signature->timestamp;
         hashdigest_t packet_signature;
-        memcpy(&packet_signature, &sign->hash, sizeof(hashdigest_t));
+        memcpy(&packet_signature, &signature->hash, sizeof(hashdigest_t));
         tx_addr = session->secure.peer_far_addr;
 
         if (timestamp < session->secure.prev_peer_timestamp) {
@@ -918,19 +960,19 @@ void MeshController::on_packet(uint interface_id, MeshPhyAddrPtr phy_addr, MeshP
 }
 
 [[noreturn]] void MeshController::task_check_packets(void* userdata) {
-    auto self = (MeshController*) userdata;
+    auto& self = *(MeshController*) userdata;
     while (true) {
-        for (auto& interface : self->interfaces) {
+        for (auto& interface : self.interfaces) {
             interface.interface->check_packets();
-            interface.sessions->check_caches(Os::get_microseconds());
+            interface.sessions->check_caches(Os::get_microseconds()); // todo make user do this
         }
-        self->check_data_streams();
-        self->router.check_packet_cache();
         Os::yield_non_starving();
     }
 }
 
 void MeshController::add_interface(MeshInterface* interface) {
+    std::unique_lock processing_guard{_mutex_processing};
+
     interface->id = interfaces.size();
     interface->controller = this;
     auto props = interface->get_props();
@@ -940,6 +982,8 @@ void MeshController::add_interface(MeshInterface* interface) {
 }
 
 void MeshController::remove_interface(MeshInterface* interface) {
+    std::unique_lock processing_guard{_mutex_processing};
+
     interface->controller = nullptr;
     auto last_elem = interfaces[interfaces.size() - 1];
     last_elem.interface->id = interface->id;
@@ -949,6 +993,8 @@ void MeshController::remove_interface(MeshInterface* interface) {
 }
 
 void MeshController::set_psk_password(const char* password) {
+    std::unique_lock processing_guard{_mutex_processing};
+
     const char salt[] = "1n5aNeEeEeE CuCuMbErS and HYSTERICAL magicircles!";
     auto hash_src = (ubyte*) alloca(sizeof(salt) + strlen(password));
     memcpy(hash_src, password, strlen(password) + 1);
@@ -963,6 +1009,8 @@ MeshController::~MeshController() {
 }
 
 void MeshController::check_data_streams() {
+    std::lock_guard guard{_mutex_data_streams};
+
     auto time = Os::get_microseconds();
 
     for (auto i = data_streams.begin(); i != data_streams.end();) {
@@ -979,12 +1027,28 @@ void MeshController::check_data_streams() {
     }
 }
 
+void MeshController::do_household() {
+    constexpr uint THRESHOLD = 1;
 
+    uint curr_time = Os::get_microseconds() / 100'000;
+    uint saved_time = _last_household_update;
+    if (curr_time - saved_time < THRESHOLD)
+        return;
 
+    if (!_last_household_update.compare_exchange_strong(saved_time, curr_time, std::memory_order_seq_cst))
+        return;
+
+    std::shared_lock processing_guard{_mutex_processing};
+
+    check_data_streams();
+    router.check_packet_cache();
+}
 
 
 // router
 void Router::add_route(far_addr_t dst, far_addr_t gateway, ubyte distance) {
+    std::lock_guard guard{_mutex_router};
+
     auto& route = routes[dst];
     if (route.state == RouteState::INSPECTING) {
         route.route_cnt = 0;
@@ -996,14 +1060,15 @@ void Router::add_route(far_addr_t dst, far_addr_t gateway, ubyte distance) {
     check_packet_cache(dst);
     for (int i = 0; i < route.route_cnt; ++i) {
         //
-        //kek(12);
-        //kek("12");
     }
     //faccessat()
     // todo implement adding route
 }
 
 bool Router::send_packet(MeshPacket* packet, uint size, uint available_size) {
+    assert(available_size >= size);
+    std::lock_guard guard{_mutex_router};
+
     // there are no broadcast packets, except for data packets, that are sent by another function
 
     auto dst_addr = (far_addr_t) packet->far.dst_addr;
@@ -1198,6 +1263,9 @@ void Router::check_packet_cache(far_addr_t dst) {
 }
 
 void Router::check_packet_cache() {
+    std::lock_guard guard{_mutex_router};
+    std::lock_guard stream_guard{controller._mutex_data_streams};
+
     // tx cache
     for (auto i = packet_cache.tx_cache.begin(); i != packet_cache.tx_cache.end();) {
         i = check_packet_cache(i, i->first);
@@ -1261,13 +1329,15 @@ void Router::check_packet_cache() {
 uint Router::write_data_stream_bytes(MeshProto::far_addr_t dst, uint offset, const ubyte* data, uint size,
                                      bool force_send, ubyte stream_id, uint stream_size, ubyte broadcast_ttl,
                                      far_addr_t broadcast_src_addr) {
+    std::lock_guard guard{_mutex_router};
+
     if (dst == BROADCAST_FAR_ADDR) {
         Route tmp_route;
         uint min_bytes_written = 0;
         for (auto& [peer_addr, peer] : peers) {
             tmp_route.gateway_addr = peer_addr;
             auto current_written = write_data_stream_bytes(dst, offset, data, size, force_send, stream_id, stream_size,
-                                                           broadcast_ttl, broadcast_src_addr, tmp_route, peer);
+                                                                broadcast_ttl, broadcast_src_addr, tmp_route, peer);
             min_bytes_written = std::min(min_bytes_written, current_written);
         }
         return min_bytes_written;
@@ -1357,6 +1427,9 @@ uint Router::write_data_stream_bytes(far_addr_t dst, uint offset, const ubyte* d
     auto interface_descr = controller.interfaces[interface->id];
     auto phy_addr = interface_descr.sessions->get_phy_addr(gateway);
     auto mtu = interface_descr.mtu;
+
+    if (interface_descr.address_size && !phy_addr)
+        return 0;
 
     // todo this ought to be allocated from pool allocator
     // for far/optimized/broadcast
@@ -1460,6 +1533,8 @@ uint Router::write_data_stream_bytes(far_addr_t dst, uint offset, const ubyte* d
 }
 
 void Router::add_peer(MeshProto::far_addr_t peer, MeshInterface* interface) {
+    std::lock_guard guard{_mutex_router};
+
     // todo sort interfaces by mtu or something
     auto& stored = peers[peer];
     if (stored.interface) {

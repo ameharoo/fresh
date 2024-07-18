@@ -7,7 +7,9 @@
 
 #include <list>
 #include <vector>
+#include <mutex>
 #include <functional>
+#include <shared_mutex>
 
 
 class PacketLog;
@@ -167,22 +169,17 @@ namespace NsMeshController
         std::unordered_map<MeshProto::far_addr_t, RouteInfo> routes;
         PacketCache packet_cache;
 
+        std::recursive_mutex _mutex_router;
+
         explicit Router(MeshController& controller_) : controller(controller_) {}
 
         void add_route(MeshProto::far_addr_t dst, MeshProto::far_addr_t gateway, ubyte distance);
 
         void check_packet_cache();
 
-        void check_packet_cache(MeshProto::far_addr_t dst);
-
-        auto check_packet_cache(decltype(packet_cache.tx_cache)::iterator cache_iter, MeshProto::far_addr_t dst)
-                -> decltype(packet_cache.tx_cache)::iterator;
-
         // available_size must always be >= size, UB instead
         // returns true if packet sent or cached successfully, false if its size exceeds peers MTU
         bool send_packet(MeshProto::MeshPacket* packet, uint size, uint available_size);
-
-        void discover_route(MeshProto::far_addr_t dst);
 
         void add_peer(MeshProto::far_addr_t peer, MeshInterface* interface);
 
@@ -194,13 +191,20 @@ namespace NsMeshController
                                      bool force_send, ubyte stream_id, uint stream_size, ubyte broadcast_ttl,
                                      MeshProto::far_addr_t broadcast_src_addr);
 
+    protected:
+        auto check_packet_cache(decltype(packet_cache.tx_cache)::iterator cache_iter, MeshProto::far_addr_t dst)
+                -> decltype(packet_cache.tx_cache)::iterator;
+
+        void check_packet_cache(MeshProto::far_addr_t dst);
+
+        void add_rx_data_packet_to_cache(DataStreamIdentity identity, uint offset, ubyte* data, uint size,
+                                         ubyte broadcast_ttl = 0);
+
+        void discover_route(MeshProto::far_addr_t dst);
+
         uint write_data_stream_bytes(MeshProto::far_addr_t dst, uint offset, const ubyte* data, uint size,
                                      bool force_send, ubyte stream_id, uint stream_size, ubyte broadcast_ttl,
                                      MeshProto::far_addr_t broadcast_src_addr, Route& route, Peer& peer);
-
-    protected:
-        void add_rx_data_packet_to_cache(DataStreamIdentity identity, uint offset, ubyte* data, uint size,
-                                         ubyte broadcast_ttl = 0);
     };
 
     class DataStream
@@ -245,6 +249,12 @@ public:
     Os::TaskHandle check_packets_task_handle;
     std::unordered_map<NsMeshController::DataStreamIdentity, NsMeshController::DataStream> data_streams; // this should be in Router
 
+    std::atomic<uint> _last_household_update{0}; // in deciseconds
+
+    // locks:
+    std::shared_mutex _mutex_processing;
+    std::mutex _mutex_data_streams;
+
     struct Callbacks {
         // todo pass ownership of packet memory to this handler
         std::function<void(MeshProto::far_addr_t, const ubyte*, ushort)> on_data_packet = default_data_handler;
@@ -257,6 +267,8 @@ public:
     std::function<void(MeshProto::far_addr_t)> new_peer_callback = default_new_peer_handler;
 
     MeshController(const char* netname, MeshProto::far_addr_t self_addr_, bool run_thread_poll_task = true);
+
+    void do_household();
 
     void run_thread_poll_task();
 
@@ -289,14 +301,17 @@ protected:
 
     static void default_packet_tracing_log_handler(const char* string) {
         printf("tracing: %s\n", string);
+        fflush(stdout);
     }
 
     static void default_data_handler(MeshProto::far_addr_t src_addr, const ubyte* data, ushort size) {
         printf("Received a data stream!\n");
+        fflush(stdout);
     }
 
     static void default_new_peer_handler(MeshProto::far_addr_t peer_addr) {
         printf("New peer! %u\n", (uint) peer_addr);
+        fflush(stdout);
     }
 
     void handle_near_secure(uint interface_id, MeshPhyAddrPtr phy_addr, MeshProto::MeshPacket* packet, uint size,
@@ -320,7 +335,8 @@ protected:
     bool check_stream_completeness(const NsMeshController::DataStreamIdentity& identity,
                                    NsMeshController::DataStream& stream);
 
-    void compete_data_stream(ubyte* data, uint size, MeshProto::far_addr_t src_addr, MeshProto::far_addr_t dst_addr);
+    void complete_data_stream(ubyte* data, uint size, MeshProto::far_addr_t src_addr,
+                              MeshProto::far_addr_t dst_addr) const;
 
     MeshProto::hashdigest_t calc_packet_signature(const PeerSessionInfo* session,
                                                   MeshProto::MeshPacket* packet, uint size, u64 timestamp) const;
