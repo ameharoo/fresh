@@ -7,9 +7,9 @@ using namespace MeshProto;
 
 
 int main() {
-    auto controller = new MeshController("dev net", 7768);
-    controller->set_psk_password("dev network");
-    controller->user_stream_handler = [](MeshProto::far_addr_t src_addr, const ubyte* data, ushort size) {
+    auto controller = new MeshController("dev network", 7768);
+    controller->set_psk_password("1234");
+    controller->callbacks.on_data_packet = [](MeshProto::far_addr_t src_addr, const ubyte* data, ushort size) {
         printf("Hello packet!\n");
         fflush(stdout);
 

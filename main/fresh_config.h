@@ -10,7 +10,7 @@ const u64 NO_AFFINITY = -1;
 const u64 MAX_SECURE_EST_SESSION_LIVE_TIME = 4'000'000; // in microseconds
 
 // TASK: check packets cache
-const auto CHECK_PACKETS_TASK_NAME = "mesh check packets";
+const auto CHECK_PACKETS_TASK_NAME = "fresh if check packets";
 const int CHECK_PACKETS_TASK_STACK_SIZE = 4096;
 const int CHECK_PACKETS_TASK_PRIORITY = -7;
 const u64 CHECK_PACKETS_TASK_AFFINITY = NO_AFFINITY;

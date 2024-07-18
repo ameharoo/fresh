@@ -54,6 +54,7 @@ namespace NsMeshController
         uint mtu;
         ubyte address_size; // in bytes
         bool is_secured;
+        Os::TaskHandle check_packets_task_handle;
     };
 
     struct Peer
@@ -246,7 +247,6 @@ public:
     std::vector<NsMeshController::InterfaceInternalParams> interfaces;
     NsMeshController::Router router{*this};
     MeshProto::far_addr_t self_addr;
-    Os::TaskHandle check_packets_task_handle;
     std::unordered_map<NsMeshController::DataStreamIdentity, NsMeshController::DataStream> data_streams; // this should be in Router
 
     std::atomic<uint> _last_household_update{0}; // in deciseconds
@@ -262,19 +262,11 @@ public:
         std::function<void(MeshProto::far_addr_t)> new_peer = default_new_peer_handler;
     } callbacks;
 
-    // todo these two one are deprecated, use callbacks.on_data_packet and callbacks.new_peer
-    std::function<void(MeshProto::far_addr_t, const ubyte*, ushort)> user_stream_handler = default_data_handler;
-    std::function<void(MeshProto::far_addr_t)> new_peer_callback = default_new_peer_handler;
-
-    MeshController(const char* netname, MeshProto::far_addr_t self_addr_, bool run_thread_poll_task = true);
+    MeshController(const char* netname, MeshProto::far_addr_t self_addr_);
 
     void do_household();
 
-    void run_thread_poll_task();
-
     void on_packet(uint interface_id, MeshPhyAddrPtr phy_addr, MeshProto::MeshPacket* packet, uint size);
-
-    [[noreturn]] static void task_check_packets(void* userdata);
 
     void add_interface(MeshInterface* interface);
 

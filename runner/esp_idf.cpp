@@ -14,9 +14,9 @@ using namespace MeshProto;
 
 extern "C" void app_main() {
     auto wifi_interface = new WifiEspNowMeshInterface();
-    auto controller = new MeshController("dev net", wifi_interface->derive_far_addr_uint32());
-    controller->set_psk_password("dev network");
-    controller->user_stream_handler = [](MeshProto::far_addr_t src_addr, const ubyte* data, ushort size) {
+    auto controller = new MeshController("dev network", wifi_interface->derive_far_addr_uint32());
+    controller->set_psk_password("1234");
+    controller->callbacks.on_data_packet = [](MeshProto::far_addr_t src_addr, const ubyte* data, ushort size) {
         printf("%s\n", data);
         fflush(stdout);
     };

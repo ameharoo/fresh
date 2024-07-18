@@ -70,7 +70,7 @@ public:
     ubyte curr_read_amount = 0;
     bool ack_received = true; // like binary semaphore, but have no callback on someone waiting
 
-    std::mutex _mutex;
+    std::recursive_mutex _mutex;
 
     NsP2PUnsecuredShortInterface::PacketCache cache;
 

@@ -60,7 +60,6 @@ struct CompletedStreamInfo
 
 static void task_handle_packet(void* userdata) {
     auto info = (CompletedStreamInfo*) userdata;
-    info->controller->user_stream_handler(info->src_addr, info->data, info->size);
     if (info->controller->callbacks.on_data_packet)
         info->controller->callbacks.on_data_packet(info->src_addr, info->data, info->size);
 
@@ -629,16 +628,8 @@ void MeshController::retransmit_packet_part_broadcast(MeshPacket* packet, uint p
 
 
 // mesh controller
-MeshController::MeshController(const char* netname, far_addr_t self_addr_, bool run_thread_poll_task) : self_addr(self_addr_) {
+MeshController::MeshController(const char* netname, far_addr_t self_addr_) : self_addr(self_addr_) {
     memcpy(network_name.data(), netname, std::min(strlen(netname), sizeof(network_name)));
-
-    if (run_thread_poll_task)
-        this->run_thread_poll_task();
-}
-
-void MeshController::run_thread_poll_task() {
-    Os::create_task(task_check_packets, CHECK_PACKETS_TASK_NAME, CHECK_PACKETS_TASK_STACK_SIZE, this,
-                    CHECK_PACKETS_TASK_PRIORITY, &check_packets_task_handle, CHECK_PACKETS_TASK_AFFINITY);
 }
 
 void MeshController::on_packet(uint interface_id, MeshPhyAddrPtr phy_addr, MeshPacket* packet, uint size) {
@@ -959,17 +950,6 @@ void MeshController::on_packet(uint interface_id, MeshPhyAddrPtr phy_addr, MeshP
     }
 }
 
-[[noreturn]] void MeshController::task_check_packets(void* userdata) {
-    auto& self = *(MeshController*) userdata;
-    while (true) {
-        for (auto& interface : self.interfaces) {
-            interface.interface->check_packets();
-            interface.sessions->check_caches(Os::get_microseconds()); // todo make user do this
-        }
-        Os::yield_non_starving();
-    }
-}
-
 void MeshController::add_interface(MeshInterface* interface) {
     std::unique_lock processing_guard{_mutex_processing};
 
@@ -977,7 +957,21 @@ void MeshController::add_interface(MeshInterface* interface) {
     interface->controller = this;
     auto props = interface->get_props();
     interfaces.push_back({interface, props.sessions, props.far_mtu, props.address_size, props.need_secure});
+    auto& interface_descr = interfaces.back();
+
+    Os::create_task(
+    [](void* userdata){
+        auto& interface = *(InterfaceInternalParams*) userdata;
+        while (true) { // todo make the loop finite
+            interface.interface->check_packets();
+            interface.sessions->check_caches(Os::get_microseconds());
+        }
+    },
+    CHECK_PACKETS_TASK_NAME, CHECK_PACKETS_TASK_STACK_SIZE, &interface_descr, CHECK_PACKETS_TASK_PRIORITY,
+    &interface_descr.check_packets_task_handle, CHECK_PACKETS_TASK_AFFINITY);
+
     write_log(self_addr, LogFeatures::TRACE_PACKET_IO, "sending broadcast hello world");
+
     interface->send_hello(nullptr);
 }
 
@@ -985,10 +979,12 @@ void MeshController::remove_interface(MeshInterface* interface) {
     std::unique_lock processing_guard{_mutex_processing};
 
     interface->controller = nullptr;
-    auto last_elem = interfaces[interfaces.size() - 1];
+    auto&& last_elem = std::move(interfaces[interfaces.size() - 1]);
+    // fixme memory and cpu issues with removing currently processed task
+    Os::end_task(last_elem.check_packets_task_handle);
     last_elem.interface->id = interface->id;
     if (interface != last_elem.interface) // to prevent from being moved to itself
-        interfaces[interface->id] = last_elem;
+        interfaces[interface->id] = std::move(last_elem);
     interfaces.pop_back();
 }
 
@@ -1003,10 +999,7 @@ void MeshController::set_psk_password(const char* password) {
     pre_shared_key = Os::Sha256Hasher::hash<decltype(pre_shared_key)>(hash_src, sizeof(salt) + strlen(password));
 }
 
-MeshController::~MeshController() {
-    // fixme memory and cpu issues with removing currently processed task
-    Os::end_task(check_packets_task_handle);
-}
+MeshController::~MeshController() = default;
 
 void MeshController::check_data_streams() {
     std::lock_guard guard{_mutex_data_streams};
@@ -1106,7 +1099,7 @@ bool Router::send_packet(MeshPacket* packet, uint size, uint available_size) {
 
     // peer table lookup
     auto interface = peers[gateway_far_addr].interface;
-    auto interface_descr = controller.interfaces[interface->id];
+    auto& interface_descr = controller.interfaces[interface->id];
 
     // packet size exceeds the interface MTU
     if (size + (interface_descr.is_secured * MESH_SECURE_PACKET_OVERHEAD) > interface_descr.mtu) {
@@ -1157,7 +1150,7 @@ void Router::discover_route(far_addr_t dst) {
 
         while (peer_list) {
             auto interface = peer_list->interface;
-            auto interface_descr = controller.interfaces[interface->id];
+            auto& interface_descr = controller.interfaces[interface->id];
             far_ping->far.ping.min_mtu = interface_descr.mtu;
             auto phy_addr = interface_descr.sessions->get_phy_addr(far);
 
@@ -1424,7 +1417,7 @@ uint Router::write_data_stream_bytes(far_addr_t dst, uint offset, const ubyte* d
                                      far_addr_t broadcast_src_addr, Route& route, Peer& peer) {
     auto gateway = route.gateway_addr;
     auto interface = peer.interface;
-    auto interface_descr = controller.interfaces[interface->id];
+    auto& interface_descr = controller.interfaces[interface->id];
     auto phy_addr = interface_descr.sessions->get_phy_addr(gateway);
     auto mtu = interface_descr.mtu;
 
@@ -1545,7 +1538,8 @@ void Router::add_peer(MeshProto::far_addr_t peer, MeshInterface* interface) {
     stored.interface = interface;
 
     // todo do not call this immediately, queue it and call later
-    controller.new_peer_callback(peer);
+    if (controller.callbacks.new_peer)
+        controller.callbacks.new_peer(peer);
 }
 
 bool NsMeshController::DataStream::add_data(ushort offset, const ubyte* data, ushort size) {

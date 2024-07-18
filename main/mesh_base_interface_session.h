@@ -74,7 +74,7 @@ public:
 
     virtual MeshPhyAddrPtr get_phy_addr(MeshProto::far_addr_t far_addr) = 0;
 
-    virtual void check_caches(u64 time) {} // todo remove
+    virtual void check_caches(u64 time) {}
 };
 
 

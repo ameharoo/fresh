@@ -15,8 +15,6 @@ P2PUnsecuredShortInterface::P2PUnsecuredShortInterface(bool is_self_rx_buf_infin
   write_stream(write_stream_) { }
 
 void P2PUnsecuredShortInterface::check_packets() {
-    std::lock_guard guard{_mutex};
-
     // if waiting for new packet
     if (!remain_read) {
         ubyte tmp_char;
@@ -32,6 +30,7 @@ void P2PUnsecuredShortInterface::check_packets() {
         if (!remain_read) {
             assert(!ack_received); // got unexpected ACK signal
             ack_received = true;
+            std::lock_guard guard{_mutex};
             process_next_queue_element();
             return;
         }
@@ -39,18 +38,24 @@ void P2PUnsecuredShortInterface::check_packets() {
 
     // read as much, as we can
     auto read_amount = read_stream.read_nonblock((ubyte*) curr_buf + curr_read_amount, remain_read);
-    remain_read -= read_amount;
-    curr_read_amount += read_amount;
+    ubyte packet_size;
+    {
+        std::lock_guard guard{_mutex};
+        remain_read -= read_amount;
+        curr_read_amount += read_amount;
 
-    // if something is remaining - yield and wait until everything received
-    if (remain_read)
-        return;
+        // if something is remaining - yield and wait until everything received
+        if (remain_read)
+            return;
+
+        packet_size = curr_read_amount;
+        curr_read_amount = 0;
+        remain_read = 0;
+    }
 
     send_ack();
 
-    controller->on_packet(id, nullptr, (MeshPacket*) curr_buf, curr_read_amount);
-    curr_read_amount = 0;
-    remain_read = 0;
+    controller->on_packet(id, nullptr, (MeshPacket*) curr_buf, packet_size);
 }
 
 bool P2PUnsecuredShortInterface::accept_near_packet(MeshPhyAddrPtr phy_addr, const MeshPacket* packet, uint size) {
