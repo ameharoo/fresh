@@ -15,7 +15,7 @@ public:
 
     Esp32UartSerialOut();
 
-    size_t read_nonblock(void* dst, size_t size) override { return *(volatile int*)nullptr; }
+    size_t read_block(void* dst, size_t size) override { return *(volatile int*)nullptr; }
 
     void write(const void* data, size_t size) override;
 

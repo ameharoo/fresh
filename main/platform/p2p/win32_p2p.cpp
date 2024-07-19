@@ -55,11 +55,11 @@ Win32Serial::Win32Serial(const char* name, uint baudrate) {
 
     COMMTIMEOUTS timeouts = {0};
 
-    timeouts.ReadIntervalTimeout = 50000;
-    timeouts.ReadTotalTimeoutConstant = 50;
-    timeouts.ReadTotalTimeoutMultiplier = 0;
-    timeouts.WriteTotalTimeoutConstant = 50;
-    timeouts.WriteTotalTimeoutMultiplier = 1;
+    timeouts.ReadIntervalTimeout = MAXDWORD;
+    timeouts.ReadTotalTimeoutConstant = MAXDWORD;
+    timeouts.ReadTotalTimeoutMultiplier = MAXDWORD;
+    timeouts.WriteTotalTimeoutConstant = MAXDWORD;
+    timeouts.WriteTotalTimeoutMultiplier = MAXDWORD;
 
     if (SetCommTimeouts(file, &timeouts) == FALSE)
         printf("\n   Error! in Setting Time Outs");
@@ -69,7 +69,7 @@ Win32Serial::Win32Serial(const char* name, uint baudrate) {
     handle = (ubyte*) file;
 }
 
-size_t Win32Serial::read_nonblock(void* dst, size_t size) {
+size_t Win32Serial::read_block(void* dst, size_t size) {
     DWORD n_read;
     ReadFile((HANDLE) handle, dst, size, &n_read, nullptr);
     if (n_read) {

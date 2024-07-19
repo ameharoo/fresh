@@ -8,7 +8,7 @@
 class BaseSerial
 {
 public:
-    virtual size_t read_nonblock(void* dst, size_t size) = 0;
+    virtual size_t read_block(void* dst, size_t size) = 0;
 
     virtual void write(const void* data, size_t size) = 0;
 

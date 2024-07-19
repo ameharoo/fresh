@@ -13,9 +13,7 @@ public:
 
     UnixSerial(const char* name, uint baud);
 
-    void read_block(void* dst, size_t size);
-
-    size_t read_nonblock(void* dst, size_t size) override;
+    size_t read_block(void* dst, size_t size) override;
 
     void write(const void* data, size_t size) override;
 

@@ -18,7 +18,7 @@ void P2PUnsecuredShortInterface::check_packets() {
     // if waiting for new packet
     if (!remain_read) {
         ubyte tmp_char;
-        if (!read_stream.read_nonblock(&tmp_char, 1))
+        if (!read_stream.read_block(&tmp_char, 1))
             return;
 
         ubyte read_char = tmp_char;
@@ -37,7 +37,7 @@ void P2PUnsecuredShortInterface::check_packets() {
     }
 
     // read as much, as we can
-    auto read_amount = read_stream.read_nonblock((ubyte*) curr_buf + curr_read_amount, remain_read);
+    auto read_amount = read_stream.read_block((ubyte*) curr_buf + curr_read_amount, remain_read);
     ubyte packet_size;
     {
         std::lock_guard guard{_mutex};

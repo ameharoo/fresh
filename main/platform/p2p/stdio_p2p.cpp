@@ -2,7 +2,7 @@
 
 StdioSerial::StdioSerial(FILE* handle_) : handle(handle_) { }
 
-size_t StdioSerial::read_nonblock(void* dst, size_t size) {
+size_t StdioSerial::read_block(void* dst, size_t size) {
     return fread(dst, 1, size, handle);
 }
 

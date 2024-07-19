@@ -79,8 +79,8 @@ UnixSerial::UnixSerial(const char* name, uint baud) {
     serial.c_iflag &= ~IGNBRK;
     serial.c_oflag = 0;
     serial.c_lflag = 0;
-    serial.c_cc[VMIN] = 0;
-    serial.c_cc[VTIME] = 1;
+    serial.c_cc[VMIN] = 1;
+    serial.c_cc[VTIME] = 0;
 
     serial.c_iflag &= ~(IXON | IXOFF | IXANY); // shut off xon/xoff ctrl
 
@@ -106,18 +106,15 @@ UnixSerial::UnixSerial(const char* name, uint baud) {
     printf("Port opened\n");
 }
 
-void UnixSerial::read_block(void* dst, size_t size) {
+size_t UnixSerial::read_block(void* dst, size_t size) {
     uint written = 0;
-    while (written != size)
-        written += read_nonblock((ubyte *) dst + written, size - written);
-}
+    while (written != size) {
+        auto curr_written = ::read(fd, (ubyte *) dst + written, size - written);
+        assert(curr_written >= 0);
+        written += curr_written;
+    }
 
-size_t UnixSerial::read_nonblock(void* dst, size_t size) {
-    auto bytes = read(fd, dst, size);
-    if(bytes == -1)
-        return 0;
-
-    return bytes;
+    return size;
 }
 
 void UnixSerial::write(const void* data, size_t size) {

@@ -103,7 +103,7 @@ WifiEspNowMeshInterface::WifiEspNowMeshInterface() {
 void WifiEspNowMeshInterface::check_packets() {
     RequestQueueData data;
 
-    while (xQueueReceive(rx_queue, &data, 0) == pdTRUE) {
+    while (xQueueReceive(rx_queue, &data, std::numeric_limits<TickType_t>::max()) == pdTRUE) {
         auto packet = data.payload;
 
         if (self_addr == data.mac)
