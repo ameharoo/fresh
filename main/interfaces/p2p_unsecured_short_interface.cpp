@@ -23,6 +23,7 @@ void P2PUnsecuredShortInterface::check_packets() {
 
         ubyte read_char = tmp_char;
         if (~read_char & 0b10000000) {
+            uart_print_char_callback(read_char);
             return; // todo write this bytes somewhere as a common stdin char/bytes
         }
 
@@ -152,4 +153,8 @@ void NsP2PUnsecuredShortInterface::PacketCache::add_entry(const void* data, ubyt
         first_entry = new_entry;
         last_entry = new_entry;
     }
+}
+
+void default_uart_print_char_callback(ubyte ch) {
+
 }

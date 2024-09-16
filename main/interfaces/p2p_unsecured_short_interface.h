@@ -54,6 +54,7 @@ namespace NsP2PUnsecuredShortInterface
 // this code can send 1 ack signal and data packet, while they both have to fit in the same 128 bytes
 // packet consists of 1 byte header+size and some payload
 // because of this, the maximum payload size is 126 bytes, and this is the MTU of this interface
+void default_uart_print_char_callback (ubyte ch);
 class P2PUnsecuredShortInterface : public MeshInterface
 {
 public:
@@ -73,6 +74,8 @@ public:
     std::recursive_mutex _mutex;
 
     NsP2PUnsecuredShortInterface::PacketCache cache;
+
+    std::function<void(ubyte)> uart_print_char_callback = default_uart_print_char_callback;
 
     // negative size to set unlimited buffers
     P2PUnsecuredShortInterface(bool is_self_rx_buf_infinite_, bool is_opponent_rx_buf_infinite_,
